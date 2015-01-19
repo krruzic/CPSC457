@@ -1,0 +1,16 @@
+#!/usr/bin/gnuplot
+reset
+set terminal png
+
+set xlabel "threads"
+set xrange [0:2200]
+set samples 20
+
+set ylabel "time (s)"
+set yrange [0:800]
+set title "Simulation 1"
+set key reverse Left outside
+set grid
+plot "sim1.dat" using 1:2:4 w errorbars title "Complex", \
+"" using 1:3:5 w errorbars title "Simple"
+#

@@ -1,0 +1,45 @@
+README
+=====================
+So this collection of programs simulates different lineup structures at the fictional cafe, starlocks.
+All programs are compiled with `make` and can be run by name: "sim1, sim2, or sim2MACFO".
+Changing the number of threads is done manually by redefining NUM_THREADS in the associated header file.
+The programs ONLY output the final timing for each type of customer as well as money made, and the total running time.
+
+MY CHARTS DO NOT INCLUDE 10000 THREADS.
+This is because that is an unreasonable number and the times can be extrapolated from the previous counts.
+Waiting for 10000 threads to actually complete is therefore useless and not really something I felt like doing.
+The other data points get the point across I think.
+
+Oh, I also included the scripts I made to plot the data, they aren't very interesting though
+
+
+QUESTION ANSWERS
+=======================
+
+1.
+A) Critical sections
+B) Critical sections
+C) Threads
+D) They are added to their corresponding queue upon creation
+E) Yes, they are implemented with a LL structure (constrained by available memory of cours)
+
+2. I used pthreads for this simulation, as it allows a simple, quick and clean implementation.
+Relevant text from the man page includes this sentence:
+    "These threads share the same global memory (data andheap  segments),  but  each  thread  has its own stack (automatic vari‐ables)."
+Because of this it is easier to manage access to the global queues. The VMs default pthread implementation is NPTL.
+
+3. Such calculations are available in the include .dat files.
+
+4. Graphs are called plot1.png and plot2.png. They describe the results of simulation 1 and simulation 2 respectively.
+
+4a. Simulation 2 seems to have a lower turnaround time, mainly due to its dramatic decrease in time spent serving "simple" customers.
+
+5. Complex recieve horrible service in Simulation 2, while both customer types recieve good service in Simulation 1
+
+6. I say they should move to Simulation 2. This is because when I go to Horton's or Sbucks IRL
+I always order something simple, like a donut. Having to wait in an hour long line to be served in .05 seconds is annoying. My conclusion is also based on my code, if you read my answer to 4 and 5 I explain this. Another factor that should be mentioned is the turnaround time gets worse as customer numbers increase. However, having 1000 customers in a Starlocks at once is unreasonable and valuing that output is not very important.
+
+7.
+
+8. MACFO doesn't really change anything. Lining up takes very little time and thus removing it does
+basically nothing

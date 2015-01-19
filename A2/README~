@@ -1,0 +1,71 @@
+ASSIGNMENT 2 KRISTOPHER RUZIC 10104072
+===============================
+
+This submission contains 1 subfolder, which houses a C program (ptag-tester/) to test our new syscall, it has the ability to add and remove tags from processes owned by the executing user. A Makefile used to build this program is included
+A patch file is also included and applying it should update your kernel directory to have all my changes.
+
+USING THE PROC LKM
+====================
+One can read from the automatically inserted proc module with either the included utility tagstat (`./tagstat`) or `cat /proc/ptags`
+The expected result is for all tags associated with processes you own to printed to stdout in the following fornat:
+	<PID> : <TAG> | state: <STATE>
+
+USING THE PTAG SYSCALL
+========================
+This can be done with the included ptag utility inside the ptag-tester directory. 
+Make it with make and execute it with
+./ptag <PID> <FLAG> <TAG>
+Where FLAG is whether you want to add or a remove a tag (-a or -r respectively)
+Keep in mind that a tag can only be attached to a process you own and will fail gracefully if you attempt otherwise
+
+USING THE TAGKILL UTILITY
+===========================
+Found in the root directory of this assignment, this python script can be used to kill all processes that have a given tag associated with them
+It is run as follows:
+	./tagkill.py <TAG TO KILL>
+If no processes have that tag you are notified, and if any processes are killed you are also notified.
+
+
+P1 QUESTIONS
+==============
+A) tsk->sched is a volatile long defined on line 1216 of sched.h, TASK_DEAD is defined on line 221 of sched.h
+
+B) schedule() does the actual switch to the next process
+
+C) BUG() starts a kernel panic because something went wrong with the switch and cannnot be recovered.
+
+D) these lines are used to get gcc to compile without the "nonreturn function does return" error. The infinite for loop makes GCC think the program will continue execution at that point, but it won't as that loop will never be reached in actuality
+
+E) PANIC() L45 bug.h > emergency_restart L55 panic.c > machine_emergency_restart() L281 sys.c > machine_emergency_restart(1) and L629 of reboot.c sets reboot_emergency to 1 > machine_ops.emergency_restart() gets called on L666 > machine_ops.emergency_restart set to native_emergency_restart 
+
+PART 2 COMMENTS
+========
+Comments added for part 2 can be found in the patch file, and also in the root directory of this assignment in the file pid.c
+
+
+P2 QUESTIONS
+==============
+B) to make a new method that does the we would need to update the loops inside of alloc_pid to not only go to the next available pid, but to skip them if they are not the requested pids. The basic allocation of a new PID works like this
+for each possible pid: 
+	for each task:
+		if task == pid // pid used
+			continue
+
+With this setup it is clear we would only need to add a check to see if the available pid is empty AND equal to the requested pid (req pid would need to be passed to alloc_pid as well). Once we have this check more error checking would be needed as the req pid may have been used. In which case the allocation should just forget about the requested PID and continue as it would have before this feature was added. I don't think any other data structures need to be modified as a simple check before actual allocation should be good enough.
+
+
+P3 QUESTIONS
+==============
+E) pro and con of psuedo device:
+	Easy to implement, but has restrictions on memory usage 
+   pro and con of syscall:
+   	deep integration with the kernel, can be used in many different ways while a LKM will have to be modified to add functionality
+   	However it opens up attack vectors and affect kernelspace memory
+
+G) I personally think that implementing this without a new syscall is not only the better option, but the safer one. 
+Adding new functionality to the kernel is not always needed, and in this case is very pointless. Putting stuff into kernelspace to make finding a process easier has no upsides over using a tag file in userland. 
+This is because it would be simpler to implement in userland and be completely safe as no new attack vectors would be added to the kernel.
+
+H) Obviously I get the job. I did exactly what the cto recommended, and didn't need to add yet another syscall.
+
+ps: get memed.

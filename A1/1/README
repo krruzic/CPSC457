@@ -1,0 +1,43 @@
+README 
+=============
+THIS ASSIGNMENT IS COMPLETED COMPLETED
+Hi, to run this program start a `yes` process. Compile with `make`. Then pass that pid to it. The output should be along the lines of
+./itrace.o -p <PID of yes> 
+DATA:   pop ebp
+DATA:   mov ebp, esp
+DATA:   sysenter
+DATA:   pop ebp
+DATA:   pop edx
+DATA:   pop ecx
+DATA:   ret
+DATA:   pop ebx
+DATA:   cmp eax, 0xfffff001
+DATA:   jae 0x34
+DATA:   ret
+DATA:   mov edx, [ebp-0x14]
+DATA:   test eax, eax
+DATA:   jns 0xffffffd7
+DATA:   sub esi, eax
+DATA:   test esi, esi
+DATA:   jle 0x5c
+DATA:   mov eax, [ebp+0x10]
+DATA:   sub eax, esi
+DATA:   jmp 0xffffffce
+DATA:   mov edi, [edx+0x50]
+DATA:   mov esi, [edx+0x4c]
+DATA:   test edi, edi
+DATA:   mov [ebp-0x10], esi
+DATA:   mov [ebp-0xc], edi
+
+Eventually you will notice a loop, clearly demonstrating the looping print of `yes`
+
+Another way to run it is by attaching to the process of my asm file (compiled when you ran make)
+The output will be the exact code seen in the test.s file. It loops. This is a sample of the loop.
+output:
+DATA:	inc eax
+DATA:	dec ebx
+DATA:	inc edx
+DATA:	dec eax
+DATA:	inc ebx
+DATA:	jmp 0xfffffffb
+=============

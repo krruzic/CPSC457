@@ -1,0 +1,23 @@
+README
+=============
+Hi again. This part is also completed. Everything works I am pretty sure. So in this program just compile with make, insert with modprobe or insmod crcdev. 
+After you've done that you're going to want to attempt a read, to get the task information you're looking for.
+sudo cat /dev/crcdev works well for this. Check to see if it worked by reading /var/log/messages
+Another important thing is writing. What happens when you attempt a write?! Well I wrote a C program that let's you easily
+write to the device. Run test.o with an argument of whatever and check the log again. 
+Hopefully you'll see the error message. Oh PS the checksums are printed as hex. 
+Another thing: if the task has no mm, I set the pgd to 0 and then include it in the checksum calculation.
+Questions:
+1) Remove the parts that change all the time. This includes state, and ptrace.
+2) sudo modprobe crcdev
+   sudo cat /dev/crcdev #(READ TO DEVICE)
+   sudo cat /var/log/message #(PRINT THE MESSAGE LOG)
+   Oct 17 14:10:52 cpsc457 kernel: Name: bash Checksum: 1e63eec8
+   Oct 17 14:10:52 cpsc457 kernel: Name: sudo Checksum: 8d89254a
+   Oct 17 14:10:52 cpsc457 kernel: Name: cat Checksum: 44a54805	
+   Oct 17 14:51:14 cpsc457 kernel: Name: kswapd0 mm is null!	Checksum: 831e58a9 
+	Something like that. You can check yourself using the above stuff.
+   sudo ./test TEST #(TEST WRITING)
+   sudo cat /var/log/message #(PRINT THE MESSAGE LOG)
+   Oct 17 14:10:55 cpsc457 kernel: EINVAL, Operation not permitted: Device does not support writing
+=============

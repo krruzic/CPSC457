@@ -1,0 +1,416 @@
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/arch/x86/include/asm/unistd_32.h /home/cpsc/linux-2.6.32.60/arch/x86/include/asm/unistd_32.h
+--- linux-2.6.32.60/arch/x86/include/asm/unistd_32.h	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/arch/x86/include/asm/unistd_32.h	2014-11-09 01:54:10.124651008 -0700
+@@ -342,10 +342,11 @@
+ #define __NR_pwritev		334
+ #define __NR_rt_tgsigqueueinfo	335
+ #define __NR_perf_event_open	336
++#define __NR_ptag 				337
+ 
+ #ifdef __KERNEL__
+ 
+-#define NR_syscalls 337
++#define NR_syscalls 338
+ 
+ #define __ARCH_WANT_IPC_PARSE_VERSION
+ #define __ARCH_WANT_OLD_READDIR
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/arch/x86/include/asm/unistd_64.h /home/cpsc/linux-2.6.32.60/arch/x86/include/asm/unistd_64.h
+--- linux-2.6.32.60/arch/x86/include/asm/unistd_64.h	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/arch/x86/include/asm/unistd_64.h	2014-11-09 01:53:41.299444114 -0700
+@@ -661,7 +661,8 @@
+ __SYSCALL(__NR_rt_tgsigqueueinfo, sys_rt_tgsigqueueinfo)
+ #define __NR_perf_event_open			298
+ __SYSCALL(__NR_perf_event_open, sys_perf_event_open)
+-
++#define __NR_ptag						337
++__SYSCALL(__NR_ptag, sys_ptag)
+ #ifndef __NO_STUBS
+ #define __ARCH_WANT_OLD_READDIR
+ #define __ARCH_WANT_OLD_STAT
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/arch/x86/Kconfig /home/cpsc/linux-2.6.32.60/arch/x86/Kconfig
+--- linux-2.6.32.60/arch/x86/Kconfig	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/arch/x86/Kconfig	2014-11-09 01:50:36.931767896 -0700
+@@ -2116,3 +2116,5 @@
+ source "arch/x86/kvm/Kconfig"
+ 
+ source "lib/Kconfig"
++
++source "ptag/Kconfig"
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/arch/x86/kernel/syscall_table_32.S /home/cpsc/linux-2.6.32.60/arch/x86/kernel/syscall_table_32.S
+--- linux-2.6.32.60/arch/x86/kernel/syscall_table_32.S	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/arch/x86/kernel/syscall_table_32.S	2014-11-09 01:52:07.628262924 -0700
+@@ -336,3 +336,5 @@
+ 	.long sys_pwritev
+ 	.long sys_rt_tgsigqueueinfo	/* 335 */
+ 	.long sys_perf_event_open
++	.long sys_ptag 
++	
+\ No newline at end of file
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/fs/proc/Makefile /home/cpsc/linux-2.6.32.60/fs/proc/Makefile
+--- linux-2.6.32.60/fs/proc/Makefile	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/fs/proc/Makefile	2014-11-10 18:27:34.120637256 -0700
+@@ -19,6 +19,7 @@
+ proc-y	+= uptime.o
+ proc-y	+= version.o
+ proc-y	+= softirqs.o
++proc-y  += ptags.o
+ proc-$(CONFIG_PROC_SYSCTL)	+= proc_sysctl.o
+ proc-$(CONFIG_NET)		+= proc_net.o
+ proc-$(CONFIG_PROC_KCORE)	+= kcore.o
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/fs/proc/ptags.c /home/cpsc/linux-2.6.32.60/fs/proc/ptags.c
+--- linux-2.6.32.60/fs/proc/ptags.c	1969-12-31 17:00:00.000000000 -0700
++++ /home/cpsc/linux-2.6.32.60/fs/proc/ptags.c	2014-11-09 13:05:51.000000000 -0700
+@@ -0,0 +1,62 @@
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/fs.h>
++#include <linux/miscdevice.h>
++#include <linux/kernel.h>
++#include <linux/proc_fs.h>
++#include <linux/string.h>
++#include <asm/uaccess.h>
++#include <linux/sched.h> /* Needed for task_struct */
++
++
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("Kristopher Ruzic");
++MODULE_DESCRIPTION("prints out tags associated with processes");
++
++
++int read_ptags( char *page, char **start, off_t off, int count, int *eof, void *data )
++{
++    struct task_struct *task;
++    struct tag_node *cur;
++    struct mutex ll_mutex;
++    off_t len = 0;
++    if (off > 0) // if the buffer was added to previously exit immediately
++        return 0;
++    for_each_process(task) { 
++        if (get_current_user()->uid != task->cred->uid) {
++            continue; // not owned by reader
++        }
++        task_lock(task); // locks
++        mutex_init(&ll_mutex);
++        mutex_lock(&ll_mutex);
++        if (list_empty(&task->tags)) { // check if the list is empty 
++            task_unlock(task); // unlock stuff if it is because we are done
++            mutex_unlock(&ll_mutex);
++            continue;
++        }
++        list_for_each_entry(cur, &task->tags, list) { // if we got this far print entries
++            len += sprintf(page+len, "%d : %s | state: %ld\n", task->pid, cur->ptag, task->state);
++        }
++        mutex_unlock(&ll_mutex); // cleanup
++        task_unlock(task);
++    }
++     if (off > 0)
++         return 0;
++    return len;
++}
++
++static int ptags_start(void) { // setup for the module
++    if (create_proc_read_entry("ptags", 0, NULL, read_ptags, NULL) == 0) {
++        printk(KERN_ERR "Unable to register!");
++        return -ENOMEM;
++    }
++    return 0;
++}
++
++static void ptags_end(void) { // cleanup for module
++    remove_proc_entry("ptags", NULL);
++}
++
++module_init(ptags_start);
++module_exit(ptags_end);
++
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/include/linux/init_task.h /home/cpsc/linux-2.6.32.60/include/linux/init_task.h
+--- linux-2.6.32.60/include/linux/init_task.h	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/include/linux/init_task.h	2014-11-06 21:27:43.872254940 -0700
+@@ -184,6 +184,7 @@
+ 	INIT_FTRACE_GRAPH						\
+ 	INIT_TRACE_RECURSION						\
+ 	INIT_TASK_RCU_PREEMPT(tsk)					\
++	.tags = LIST_HEAD_INIT(tsk.tags),				\
+ }
+ 
+ 
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/include/linux/sched.h /home/cpsc/linux-2.6.32.60/include/linux/sched.h
+--- linux-2.6.32.60/include/linux/sched.h	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/include/linux/sched.h	2014-11-09 01:49:59.053407748 -0700
+@@ -1540,6 +1540,13 @@
+ 	/* bitmask of trace recursion */
+ 	unsigned long trace_recursion;
+ #endif /* CONFIG_TRACING */
++	struct list_head tags;
++};
++
++/* node in our new list */
++struct tag_node {
++	char * ptag;
++	struct list_head list;
+ };
+ 
+ /* Future-safe accessor for struct task_struct's cpus_allowed. */
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/include/linux/syscalls.h /home/cpsc/linux-2.6.32.60/include/linux/syscalls.h
+--- linux-2.6.32.60/include/linux/syscalls.h	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/include/linux/syscalls.h	2014-11-06 22:11:48.652021413 -0700
+@@ -885,4 +885,5 @@
+ asmlinkage long sys_mmap_pgoff(unsigned long addr, unsigned long len,
+ 			unsigned long prot, unsigned long flags,
+ 			unsigned long fd, unsigned long pgoff);
++asmlinkage long sys_ptag(pid_t pid, char * tag, int op);
+ #endif
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/kernel/fork.c /home/cpsc/linux-2.6.32.60/kernel/fork.c
+--- linux-2.6.32.60/kernel/fork.c	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/kernel/fork.c	2014-11-09 20:37:51.832021287 -0700
+@@ -989,7 +989,8 @@
+ 	int retval;
+ 	struct task_struct *p;
+ 	int cgroup_callbacks_done = 0;
+-
++	struct tag_node *curr_tag;
++	struct tag_node *new_tag;
+ 	if ((clone_flags & (CLONE_NEWNS|CLONE_FS)) == (CLONE_NEWNS|CLONE_FS))
+ 		return ERR_PTR(-EINVAL);
+ 
+@@ -1064,6 +1065,19 @@
+ 	copy_flags(clone_flags, p);
+ 	INIT_LIST_HEAD(&p->children);
+ 	INIT_LIST_HEAD(&p->sibling);
++
++
++	/* deep copy of parent ptag list */
++	INIT_LIST_HEAD(&p->tags);
++	list_for_each_entry(curr_tag, &current->tags, list) {
++		new_tag = kmalloc(sizeof(struct tag_node), GFP_ATOMIC);
++		new_tag->ptag = (char * )kmalloc(strlen(curr_tag->ptag), GFP_KERNEL);
++		strcpy(new_tag->ptag, curr_tag->ptag);
++		INIT_LIST_HEAD(&new_tag->list);
++		list_add(&new_tag->list, &p->tags);
++	}
++
++
+ 	rcu_copy_process(p);
+ 	p->vfork_done = NULL;
+ 	spin_lock_init(&p->alloc_lock);
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/kernel/pid.c /home/cpsc/linux-2.6.32.60/kernel/pid.c
+--- linux-2.6.32.60/kernel/pid.c	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/kernel/pid.c	2014-11-09 13:22:15.337583329 -0700
+@@ -244,50 +244,51 @@
+ 
+ struct pid *alloc_pid(struct pid_namespace *ns)
+ {
+-	struct pid *pid;
+-	enum pid_type type;
+-	int i, nr;
+-	struct pid_namespace *tmp;
+-	struct upid *upid;
+ 
+-	pid = kmem_cache_alloc(ns->pid_cachep, GFP_KERNEL);
+-	if (!pid)
+-		goto out;
++	struct pid *pid; // include/linux/pid.h L51, type struct pid, will fill this with data from a pid
++	enum pid_type type; // include/linux/pid.h L6, defines what type of pid we have
++	int i, nr; // space for two ints to be set later, i is a counter nr holds pid
++	struct pid_namespace *tmp; //include/linux/pid_namespace.h L19, defined on L251 type struct. Holds
++	struct upid *upid; //include/linux/pid.h L50, defined on L252 as a struct. Tries to keep pids cached together for easy access
++
++	pid = kmem_cache_alloc(ns->pid_cachep, GFP_KERNEL); // allocates memory for our new pid
++	if (!pid) // if we didn't successfully allocate memory
++		goto out; // goto our cleanup method
+ 
+-	tmp = ns;
++	tmp = ns; // holds the passed in value 
+ 	for (i = ns->level; i >= 0; i--) {
+-		nr = alloc_pidmap(tmp);
+-		if (nr < 0)
++		nr = alloc_pidmap(tmp); // allocate a map for our new pid
++		if (nr < 0) // something went wrong, free all of our changes
+ 			goto out_free;
+ 
+-		pid->numbers[i].nr = nr;
+-		pid->numbers[i].ns = tmp;
+-		tmp = tmp->parent;
++		pid->numbers[i].nr = nr; // sets the pid upid nr to the same as the old one, to keep in cache line
++		pid->numbers[i].ns = tmp; // same namespace as previous pid
++		tmp = tmp->parent; // move onto parent (pid process forked from)
+ 	}
+ 
+-	get_pid_ns(ns);
+-	pid->level = ns->level;
+-	atomic_set(&pid->count, 1);
+-	for (type = 0; type < PIDTYPE_MAX; ++type)
++	get_pid_ns(ns); // gets the pid ns value of our passed in value (get_pid_ns defined in include/linux/pid_namespace.h L38)
++	pid->level = ns->level; // more copying of old value stuff to the new pid
++	atomic_set(&pid->count, 1); // resets our pid count to zero (atomic set defined in include/asm-generic/atomic.h L46)
++	for (type = 0; type < PIDTYPE_MAX; ++type) // create list heads until we reach the max pid number
+ 		INIT_HLIST_HEAD(&pid->tasks[type]);
+ 
+-	spin_lock_irq(&pidmap_lock);
+-	for (i = ns->level; i >= 0; i--) {
++	spin_lock_irq(&pidmap_lock); // lock to protect critical section, defined in include/linux/spinlock.h L260
++	for (i = ns->level; i >= 0; i--) { // iterate throught the levels in our passed in value
+ 		upid = &pid->numbers[i];
+-		hlist_add_head_rcu(&upid->pid_chain,
+-				&pid_hash[pid_hashfn(upid->nr, upid->ns)]);
++		hlist_add_head_rcu(&upid->pid_chain, 
++				&pid_hash[pid_hashfn(upid->nr, upid->ns)]); // more list initilization. Makes sure every 
+ 	}
+-	spin_unlock_irq(&pidmap_lock);
++	spin_unlock_irq(&pidmap_lock); // unlock critical section
+ 
+-out:
++out: // finished up everything and returns our 
+ 	return pid;
+ 
+ out_free:
+-	while (++i <= ns->level)
++	while (++i <= ns->level) // free everything we might have setup before failure
+ 		free_pidmap(pid->numbers + i);
+ 
+-	kmem_cache_free(ns->pid_cachep, pid);
+-	pid = NULL;
++	kmem_cache_free(ns->pid_cachep, pid); // free allocated memory because we're done
++	pid = NULL; // set pid to NULL as we no longer need it, something failed
+ 	goto out;
+ }
+ 
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/Makefile /home/cpsc/linux-2.6.32.60/Makefile
+--- linux-2.6.32.60/Makefile	2012-10-07 15:41:24.000000000 -0600
++++ /home/cpsc/linux-2.6.32.60/Makefile	2014-11-09 01:55:33.469039284 -0700
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 32
+-EXTRAVERSION = .60
++EXTRAVERSION = .60.custom457
+ NAME = Man-Eating Seals of Antiquity
+ 
+ # *DOCUMENTATION*
+@@ -647,7 +647,7 @@
+ 
+ 
+ ifeq ($(KBUILD_EXTMOD),)
+-core-y		+= kernel/ mm/ fs/ ipc/ security/ crypto/ block/
++core-y		+= kernel/ mm/ fs/ ipc/ security/ crypto/ block/ ptag/
+ 
+ vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+ 		     $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/ptag/Kconfig /home/cpsc/linux-2.6.32.60/ptag/Kconfig
+--- linux-2.6.32.60/ptag/Kconfig	1969-12-31 17:00:00.000000000 -0700
++++ /home/cpsc/linux-2.6.32.60/ptag/Kconfig	2014-11-06 20:01:22.313250968 -0700
+@@ -0,0 +1,5 @@
++config PTAG
++	bool "Add a tag to a PID"
++	default y
++	--help---
++	A system call that adds a tag to a process ID
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/ptag/Makefile /home/cpsc/linux-2.6.32.60/ptag/Makefile
+--- linux-2.6.32.60/ptag/Makefile	1969-12-31 17:00:00.000000000 -0700
++++ /home/cpsc/linux-2.6.32.60/ptag/Makefile	2014-11-06 20:02:05.784234851 -0700
+@@ -0,0 +1 @@
++obj-$(CONFIG_PTAG):= ptag.o
+diff -urN -X /home/cpsc/linux-2.6.32.60/Documentation/dontdiff linux-2.6.32.60/ptag/ptag.c /home/cpsc/linux-2.6.32.60/ptag/ptag.c
+--- linux-2.6.32.60/ptag/ptag.c	1969-12-31 17:00:00.000000000 -0700
++++ /home/cpsc/linux-2.6.32.60/ptag/ptag.c	2014-11-09 19:58:57.960716529 -0700
+@@ -0,0 +1,99 @@
++#include <linux/kernel.h>
++#include <linux/linkage.h>
++#include <linux/pid.h>
++#include <linux/sched.h>
++#include <linux/uaccess.h>
++
++#define EPODRF -1
++
++int add_tag(pid_t pid, char *tag);
++int remove_tag(pid_t pid, char *tag);
++
++/* main function, calls the other two to do the work */
++asmlinkage long sys_ptag(pid_t pid, char *tag, int op) {
++	int retVal;
++	if (op == 97) {
++		printk("associate\t");
++		retVal = add_tag(pid, tag);
++	}
++	else if (op == 114) {
++		printk("remove\t");
++		retVal = remove_tag(pid, tag);
++	}
++	else {
++		printk("invalid arg!\n");
++		return EPODRF;
++	}
++	if (retVal != 0) {
++		printk("error completing task!\n");
++		return EPODRF;
++	}
++	return 0;	
++}
++
++/* adds a tag with some error checking */
++int add_tag(pid_t pid, char *tag) {
++	struct tag_node *new_tag;
++	struct task_struct *ts;	
++	struct mutex ll_mutex;
++
++	ts = pid_task(find_vpid((pid_t) pid), PIDTYPE_PID);
++	mutex_init(&ll_mutex);
++	mutex_lock(&ll_mutex);
++	task_lock(ts);
++
++	new_tag = kmalloc(sizeof(*new_tag), GFP_ATOMIC);
++
++	if (!new_tag) {
++		printk("Memory allocation failed\n");
++		goto cleanup;
++	}
++	new_tag->ptag = (char *)kmalloc(strlen_user(tag), GFP_KERNEL);
++	if (!new_tag->ptag) {
++		printk("Memory allocation failed\n");
++		goto cleanup;
++	}
++	memcpy(new_tag->ptag, tag, strlen_user(tag));
++	INIT_LIST_HEAD(&new_tag->list);
++
++	list_add(&new_tag->list, &ts->tags);
++	mutex_unlock(&ll_mutex);
++	task_unlock(ts);
++
++	printk("Tag %s attached to process %d\n", tag, pid);
++	return 0;
++
++	cleanup:
++		mutex_unlock(&ll_mutex);
++		task_unlock(ts);
++		return EPODRF;
++}
++
++/* removes a tag with some error checking */
++int remove_tag(pid_t pid, char *tag) {
++	struct tag_node *cur, *next;
++	struct task_struct *ts;	
++	struct mutex ll_mutex;
++	int retVal = -1;
++	ts = pid_task(find_vpid((pid_t) pid), PIDTYPE_PID);
++	mutex_init(&ll_mutex);
++	mutex_lock(&ll_mutex);
++	task_lock(ts);
++
++	if (!list_empty(&ts->tags)) {
++		list_for_each_entry_safe(cur, next, &ts->tags, list) {
++			if(strcmp(cur->ptag, tag) == 0) {
++				printk("Deleting node with tag: %s", tag);
++				list_del(&cur->list);
++				kfree(cur);
++				retVal = 0;
++			}
++		}
++	}
++	if (retVal == -1) 
++		printk("node not found!\n");
++
++	mutex_unlock(&ll_mutex);
++	task_unlock(ts);
++	return retVal;
++}
+\ No newline at end of file
